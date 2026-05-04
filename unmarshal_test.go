@@ -58,6 +58,59 @@ func (t *Table1) Unmarshal(fields map[string]any) error {
 	return UnmarshalRecord(t, fields)
 }
 
+type Table1Ptr struct {
+	RecordId             string
+	Attachment           *AttachmentField           `field:"Attachment"`
+	Barcode              *BarcodeField              `field:"Barcode"`
+	Button               *ButtonField               `field:"Button"`
+	Checkbox             *CheckboxField             `field:"Checkbox"`
+	Collaborator         *CollaboratorField         `field:"Collaborator"`
+	CreatedBy            *CreatedByField            `field:"CreatedBy"`
+	CreatedTime          *CreatedTimeField          `field:"CreatedTime"`
+	Currency             *CurrencyField             `field:"Currency"`
+	Date                 *DateField                 `field:"Date"`
+	DateTime             *DateTimeField             `field:"DateTime"`
+	Duration             *DurationField             `field:"Duration"`
+	Email                *EmailField                `field:"Email"`
+	LastModifiedBy       *LastModifiedByField       `field:"LastModifiedBy"`
+	LastModifiedTime     *LastModifiedTimeField     `field:"LastModifiedTime"`
+	LongText             *LongTextField             `field:"LongText"`
+	MultipleCollaborator *MultipleCollaboratorField `field:"MultipleCollaborator"`
+	MultipleSelect       *MultipleSelectField       `field:"MultipleSelect"`
+	Int                  *IntField                  `field:"Int"`
+	Float                *FloatField                `field:"Float"`
+	Percent              *PercentField              `field:"Percent"`
+	Phone                *PhoneField                `field:"Phone"`
+	Rating               *RatingField               `field:"Rating"`
+	Raw                  *RawField                  `field:"Raw"`
+	RichText             *RichTextField             `field:"RichText"`
+	SingleLineText       *SingleLineTextField       `field:"SingleLineText"`
+	SingleSelect         *SingleSelectField         `field:"SingleSelect"`
+	Url                  *UrlField                  `field:"Url"`
+}
+
+func (t *Table1Ptr) GetRecordId() string {
+	return t.RecordId
+}
+
+func (t *Table1Ptr) RetrieveRecord(id string) (map[string]any, error) {
+	for _, record := range table1Records {
+		if record.RecordId == id {
+			return record.Fields, nil
+		}
+	}
+	return nil, fmt.Errorf("record with id '%s' not found", id)
+}
+
+func (t *Table1Ptr) Marshal() (map[string]any, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *Table1Ptr) Unmarshal(fields map[string]any) error {
+	return UnmarshalRecord(t, fields)
+}
+
 type Table1Record struct {
 	RecordId string
 	Fields   map[string]any
@@ -298,7 +351,7 @@ var table1Records = []Table1Record{
 
 func TestUnmarshalRecord(t *testing.T) {
 	for _, record := range table1Records {
-		t.Run(record.RecordId, func(t *testing.T) {
+		t.Run("Table1:"+record.RecordId, func(t *testing.T) {
 			target := new(Table1)
 			err := UnmarshalRecord(target, record.Fields)
 			if err != nil {
@@ -306,8 +359,15 @@ func TestUnmarshalRecord(t *testing.T) {
 				return
 			}
 			target.RecordId = record.RecordId
-			t.Logf("Unmarshalled record %s:", record.RecordId)
-			t.Logf("%+#v", target)
+		})
+		t.Run("Table1Ptr:"+record.RecordId, func(t *testing.T) {
+			target := new(Table1Ptr)
+			err := UnmarshalRecord(target, record.Fields)
+			if err != nil {
+				t.Errorf("Failed to unmarshal record %s: %v", record.RecordId, err)
+				return
+			}
+			target.RecordId = record.RecordId
 		})
 	}
 }

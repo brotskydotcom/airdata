@@ -51,9 +51,15 @@ func unmarshalStructValue(s reflect.Value, fields map[string]any) error {
 		if !ok {
 			continue
 		}
+		var fvt reflect.Type
+		if fv.Kind() == reflect.Ptr {
+			fvt = fv.Type().Elem()
+		} else {
+			fvt = fv.Type()
+		}
 		var v reflect.Value
 		var err error
-		switch fv.Type().Name() {
+		switch fvt.Name() {
 		case "AttachmentField":
 			v, err = unmarshalAttachmentField(data)
 		case "BarcodeField":
@@ -113,10 +119,26 @@ func unmarshalStructValue(s reflect.Value, fields map[string]any) error {
 			return fmt.Errorf("error unmarshaling field %s: %w", ft.Name, err)
 		}
 		if v.IsValid() {
-			fv.Set(v)
+			if fv.Kind() == reflect.Ptr {
+				fv.Set(reflect.New(fvt))
+				fv.Elem().Set(v)
+			} else {
+				fv.Set(v)
+			}
 			continue
 		}
-		return fmt.Errorf("field %s does not have a known field type", ft.Name)
+		// now look for a link type
+		if fv.Kind() == reflect.Pointer && isRecordData(fv.Type()) {
+			// TODO implement me
+			panic("implement me")
+			continue
+		}
+		if fv.Kind() == reflect.Slice && isRecordData(fv.Type().Elem()) {
+			// TODO implement me
+			panic("implement me")
+			continue
+		}
+		return fmt.Errorf("error unmarshaling field %s: not a recognized field type", ft.Name)
 	}
 	return nil
 }

@@ -12,13 +12,13 @@ import (
 )
 
 // RecordData is an interface implemented by structs that can be
-// marshaled to and from Airtable records. (Because this interface
-// allows unmarshaling into the receiver, the receiver must be
+// marshaled to and unmarshaled from Airtable records. (Because this interface
+// allows unmarshaling into the receiver, the method receiver must be
 // a pointer to the struct type.)
 //
 // Every non-link field in a RecordData struct that is mapped to an Airtable field
-// must have one of the named `...Field` types and a `field`
-// tag that gives the Airtable field name or ID.
+// must have one of the named `...Field` types (or be a pointer to one of them)
+// and a `field` tag that gives the Airtable field name or ID.
 //
 // The standard `...Field` definitions use fixed types, so you must know the type
 // of the data being received from the Airtable side to use them.
