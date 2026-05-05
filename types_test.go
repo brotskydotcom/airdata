@@ -12,7 +12,7 @@ type AllTypeStruct struct {
 	Field04 ButtonField               `field:"ButtonField"`
 	Field05 CheckboxField             `field:"CheckboxField"`
 	Field06 CollaboratorField         `field:"CollaboratorField"`
-	Field07 CreatedByField            `field:"CreatorField"`
+	Field07 CreatedByField            `field:"CreatedByField"`
 	Field08 CreatedTimeField          `field:"CreatedTimeField"`
 	Field09 CurrencyField             `field:"CurrencyField"`
 	Field10 DateField                 `field:"DateField"`
@@ -60,7 +60,7 @@ func (a *AllTypeStruct) Unmarshal(fields map[string]any) error {
 }
 
 func TestTypeReflection(t *testing.T) {
-	v := reflect.ValueOf(&AllTypeStruct{})
+	v := reflect.ValueOf(&AllTypeStruct{}).Elem()
 	vt := v.Type()
 	// work through the tagged fields
 	for i := 0; i < vt.NumField(); i++ {
