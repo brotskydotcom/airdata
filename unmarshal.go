@@ -7,7 +7,12 @@ import (
 )
 
 // UnmarshalRecord unmarshals an airtable.Record into a struct.
-func UnmarshalRecord(target any, fields map[string]any) error {
+//
+// The depth parameter is used to limit how many times links are followed
+// when unmarshalling a record with linked fields. A value of 0 means not
+// to follow any links, a value of 1 means to follow one level of links,
+// and so on.
+func UnmarshalRecord(target any, fields map[string]any, depth uint) error {
 	if target == nil {
 		// only true if called with literal nil, not a typed nil pointer
 		return fmt.Errorf("cannot unmarshal to nil")
@@ -29,7 +34,7 @@ func UnmarshalRecord(target any, fields map[string]any) error {
 	}
 	// set to a zero value before unmarshaling fields
 	s.Set(reflect.New(s.Type()).Elem())
-	if err := unmarshalStructValue(s, fields); err != nil {
+	if err := unmarshalStructValue(s, fields, depth); err != nil {
 		// reset partially unmarshaled fields
 		s.Set(reflect.New(s.Type()).Elem())
 		return err
@@ -37,7 +42,7 @@ func UnmarshalRecord(target any, fields map[string]any) error {
 	return nil
 }
 
-func unmarshalStructValue(s reflect.Value, fields map[string]any) error {
+func unmarshalStructValue(s reflect.Value, fields map[string]any, depth uint) error {
 	st := s.Type()
 	// work through the tagged fields
 	for i := 0; i < st.NumField(); i++ {
@@ -59,6 +64,7 @@ func unmarshalStructValue(s reflect.Value, fields map[string]any) error {
 		}
 		var v reflect.Value
 		var err error
+		// first, check for any of the concrete field types
 		switch fvt.Name() {
 		case "AttachmentField":
 			v, err = unmarshalAttachmentField(data)
@@ -127,20 +133,67 @@ func unmarshalStructValue(s reflect.Value, fields map[string]any) error {
 			}
 			continue
 		}
-		// now look for a link type
-		if fv.Kind() == reflect.Pointer && isRecordData(fv.Type()) {
-			// TODO implement me
-			panic("implement me")
-			continue
+		// not a concrete field type, so either it's a link type or it's invalid
+		fvt = fv.Type()
+		if fv.Kind() != reflect.Ptr && fv.Kind() != reflect.Slice {
+			return fmt.Errorf("error unmarshaling field %s: %v is not a valid field type", ft.Name, fvt)
 		}
-		if fv.Kind() == reflect.Slice && isRecordData(fv.Type().Elem()) {
-			// TODO implement me
-			panic("implement me")
-			continue
+		if fv.Kind() == reflect.Slice {
+			fvt = fv.Type().Elem()
 		}
-		return fmt.Errorf("error unmarshaling field %s: not a recognized field type", ft.Name)
+		if !isRecordData(fvt) {
+			return fmt.Errorf("error unmarshaling field %s: %v is not RecordData", ft.Name, fvt)
+		}
+		rvs, err := unmarshalLinks(data, fvt, depth, fv.Kind() == reflect.Pointer)
+		if err != nil {
+			return fmt.Errorf("error unmarshaling field %s: %w", ft.Name, err)
+		}
+		if len(rvs) > 0 {
+			if fv.Kind() == reflect.Ptr {
+				fv.Set(rvs[0])
+			} else {
+				fv.Set(reflect.Append(fv, rvs...))
+			}
+		}
 	}
 	return nil
+}
+
+func unmarshalLinks(data any, lt reflect.Type, depth uint, oneMax bool) ([]reflect.Value, error) {
+	if depth == 0 {
+		return nil, nil
+	}
+	linkData, ok := data.([]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid link data: %v", data)
+	}
+	if len(linkData) == 0 {
+		return nil, nil
+	}
+	if oneMax && len(linkData) > 1 {
+		return nil, fmt.Errorf("too many links")
+	}
+	result := make([]reflect.Value, 0, len(linkData))
+	for i, linkData := range linkData {
+		id, ok := linkData.(string)
+		if !ok {
+			return nil, fmt.Errorf("invalid data for link %d: %v", i+1, linkData)
+		}
+		v := reflect.New(lt.Elem())
+		retrieve := v.MethodByName("RetrieveRecord")
+		values := retrieve.Call([]reflect.Value{reflect.ValueOf(id)})
+		if !values[1].IsNil() {
+			err := values[1].Interface().(error)
+			return nil, fmt.Errorf("error retrieving record for link %d: %w", i+1, err)
+		}
+		fields := values[0].Interface().(map[string]any)
+		err := unmarshalStructValue(v.Elem(), fields, depth-1)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshaling link %d: %w", i+1, err)
+		}
+		result = append(result, v)
+	}
+	return result, nil
 }
 
 func unmarshalAttachmentField(data any) (reflect.Value, error) {
@@ -523,11 +576,4 @@ func entryOrZero[T any](key string, m map[string]any) T {
 		}
 	}
 	return *new(T)
-}
-
-func ensureTarget(target reflect.Value) {
-	if target.Kind() == reflect.Ptr && target.IsNil() {
-		np := reflect.New(target.Type().Elem())
-		target.Set(np)
-	}
 }
