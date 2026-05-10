@@ -31,12 +31,13 @@ import (
 // struct type that implements RecordData.
 // When marshaling, the record IDs of the
 // referenced structures will be included in the marshaled data. When unmarshaling,
-// structures will be allocated and populated with data from the linked records.
+// if the unmarshaling depth is greater than 0, structures will be allocated and
+// populated with data from the linked records.
 //
 // A pointer field allows only one link and will give an unmarshaling error if the
 // received data has more than one.
 // A slice field allows any number of links (including 0) and,
-// if empty, will be marshaled as an empty list (not nil).
+// if empty, will be marshaled as an empty array (not nil).
 type RecordData interface {
 	GetRecordId() string                              // called when marshaling links
 	RetrieveRecord(id string) (map[string]any, error) // called when unmarshaling links
@@ -51,13 +52,37 @@ func isRecordData(t reflect.Type) bool {
 }
 
 type UnmarshalError struct {
-	Field string
-	Err   error
+	Message string
+	Field   string
+	Err     error
+}
+
+func (e UnmarshalError) Is(target error) bool {
+	//goland:noinspection GoTypeAssertionOnErrors
+	_, ok := target.(UnmarshalError)
+	return ok
 }
 
 func (e UnmarshalError) Error() string {
+	if e.Err == nil {
+		if e.Field == "" {
+			return fmt.Sprintf("error unmarshaling: %s", e.Message)
+		}
+		return fmt.Sprintf("error unmarshaling field %q: %s", e.Field, e.Message)
+	}
+	if e.Field == "" {
+		if e.Message != "" {
+			return fmt.Sprintf("error unmarshaling: %s: %v", e.Message, e.Err)
+		}
+		return fmt.Sprintf("error unmarshaling: %v", e.Err)
+	}
+	if e.Message != "" {
+		return fmt.Sprintf("error unmarshaling field %q: %s: %v", e.Field, e.Message, e.Err)
+	}
 	return fmt.Sprintf("error unmarshaling field %q: %v", e.Field, e.Err)
 }
+
+func (e UnmarshalError) Unwrap() error { return e.Err }
 
 // AttachmentField is a RecordData field type that maps to an Airtable
 // [attachment field](https://airtable.com/developers/web/api/field-model#multipleattachment).

@@ -1,7 +1,10 @@
 package airdata
 
 import (
+	"errors"
 	"fmt"
+	"maps"
+	"strings"
 	"testing"
 )
 
@@ -31,7 +34,7 @@ type Table1 struct {
 	Rating               RatingField               `field:"Rating"`
 	Raw                  RawField                  `field:"Raw"`
 	RichText             RichTextField             `field:"RichText"`
-	SingleLineText       SingleLineTextField       `field:"SingleLineText"`
+	SingleLineText       SingleLineTextField       `field:"SingleLine"`
 	SingleSelect         SingleSelectField         `field:"SingleSelect"`
 	Url                  UrlField                  `field:"Url"`
 	SingleLink           *Table1                   `field:"SingleLink"`
@@ -86,7 +89,7 @@ type Table1Ptr struct {
 	Rating               *RatingField               `field:"Rating"`
 	Raw                  *RawField                  `field:"Raw"`
 	RichText             *RichTextField             `field:"RichText"`
-	SingleLineText       *SingleLineTextField       `field:"SingleLineText"`
+	SingleLineText       *SingleLineTextField       `field:"SingleLine"`
 	SingleSelect         *SingleSelectField         `field:"SingleSelect"`
 	Url                  *UrlField                  `field:"Url"`
 	SingleLink           *Table1Ptr                 `field:"SingleLink"`
@@ -172,10 +175,7 @@ var table1Records = []Table1Record{
 			"Duration":    594,
 			"Email":       "foo%bar@zotz",
 			"Float":       600,
-			"From field: Table1": []any{
-				"recZPad51auofCat0",
-			},
-			"Int": 600,
+			"Int":         600,
 			"LastModifiedBy": map[string]any{
 				"email": "dev@brotsky.com",
 				"id":    "usraydLTb610fi477",
@@ -211,7 +211,7 @@ var table1Records = []Table1Record{
 			"SingleLine":   "Record3",
 			"SingleSelect": "Todo",
 			"Url":          "https://brotsky.com",
-			"SingleLink":   []any{"recfhYBZ9vM0r7cvs"},
+			"SingleLink":   []any{},
 			"MultiLink":    []any{"recfhYBZ9vM0r7cvs", "rechSfyOe7jT3Ub5a"},
 		},
 	},
@@ -267,11 +267,7 @@ var table1Records = []Table1Record{
 			"Duration":    5034.307,
 			"Email":       "this is a tewst",
 			"Float":       3.5,
-			"From field: Table1": []any{
-				"recZPad51auofCat0",
-				"recfhYBZ9vM0r7cvs",
-			},
-			"Int": 3,
+			"Int":         3,
 			"LastModifiedBy": map[string]any{
 				"email": "dev@brotsky.com",
 				"id":    "usraydLTb610fi477",
@@ -306,7 +302,7 @@ var table1Records = []Table1Record{
 			"SingleSelect": "In progress",
 			"Url":          "https://clickonetwo.io",
 			"SingleLink":   []any{"recfhYBZ9vM0r7cvs"},
-			"MultiLink":    []any{"recZPad51auofCat0", "rechSfyOe7jT3Ub5a"},
+			"MultiLink":    []any{},
 		},
 	},
 	{
@@ -333,10 +329,7 @@ var table1Records = []Table1Record{
 			"Duration":    34.1,
 			"Email":       "valid@format.com",
 			"Float":       -6.9,
-			"From field: Table1": []any{
-				"recfhYBZ9vM0r7cvs",
-			},
-			"Int": -35,
+			"Int":         -35,
 			"LastModifiedBy": map[string]any{
 				"email": "dev@brotsky.com",
 				"id":    "usraydLTb610fi477",
@@ -357,10 +350,17 @@ var table1Records = []Table1Record{
 			"MultiLink":  []any{"recfhYBZ9vM0r7cvs", "rechSfyOe7jT3Ub5a"},
 		},
 	},
+	{
+		RecordId: "bad",
+		Fields:   map[string]any{"Percent": "data"},
+	},
 }
 
 func TestUnmarshalRecord(t *testing.T) {
 	for _, record := range table1Records {
+		if record.RecordId == "bad" {
+			continue
+		}
 		t.Run("Table1:"+record.RecordId, func(t *testing.T) {
 			target := new(Table1)
 			err := UnmarshalRecord(target, record.Fields, 1)
@@ -370,49 +370,274 @@ func TestUnmarshalRecord(t *testing.T) {
 			}
 			target.RecordId = record.RecordId
 		})
-		//t.Run("Table1Ptr:"+record.RecordId, func(t *testing.T) {
-		//	target := new(Table1Ptr)
-		//	err := UnmarshalRecord(target, record.Fields)
-		//	if err != nil {
-		//		t.Errorf("Failed to unmarshal record %s: %v", record.RecordId, err)
-		//		return
-		//	}
-		//	target.RecordId = record.RecordId
-		//})
+		t.Run("Table1Ptr:"+record.RecordId, func(t *testing.T) {
+			target := new(Table1Ptr)
+			err := UnmarshalRecord(target, record.Fields, 1)
+			if err != nil {
+				t.Errorf("Failed to unmarshal record %s: %v", record.RecordId, err)
+				return
+			}
+			target.RecordId = record.RecordId
+		})
 	}
 }
 
-func TestUnmarshalCollaboratorData(t *testing.T) {
-	good := map[string]any{"email": "dan@brotsky.com", "id": "usrh3gJSuNh5I0l2T", "name": "Dan Brotsky"}
-	c, err := unmarshalCollaboratorData(good)
-	if err != nil {
-		t.Fatal(err)
+type BadTable1 Table1
+
+func (b *BadTable1) GetRecordId() string {
+	return "bad"
+}
+
+func (b *BadTable1) RetrieveRecord(id string) (map[string]any, error) {
+	if id == "bad" {
+		for _, record := range table1Records {
+			if record.RecordId == id {
+				return record.Fields, nil
+			}
+		}
 	}
-	if c.email != "dan@brotsky.com" {
-		t.Errorf("Expected email to be 'dan@brotsky.com', got %s", c.email)
+	return nil, errors.New("not found")
+}
+
+func (b *BadTable1) Marshal() (map[string]any, error) {
+	panic("implement me")
+}
+
+func (b *BadTable1) Unmarshal(fields map[string]any) error {
+	return UnmarshalRecord(b, fields, 1)
+}
+
+//goland:noinspection SpellCheckingInspection
+func TestUnmarshalInvalidRecordData(t *testing.T) {
+	bad1 := maps.Clone(table1Records[0].Fields)
+	test1 := func(name string, data interface{}) {
+		t.Helper()
+		previous := bad1[name]
+		bad1[name] = data
+		if err := UnmarshalRecord(new(BadTable1), bad1, 1); !errors.Is(err, UnmarshalError{}) {
+			t.Errorf("Expected UnmarshalError, got %T", err)
+		} else if !strings.Contains(err.Error(), name) {
+			t.Errorf("Expected error message to contain field name '%s', got %v", name, err)
+		} else {
+			//t.Logf("Message for %s: %v", name, err)
+		}
+		bad1[name] = previous
 	}
-	if c.id != "usrh3gJSuNh5I0l2T" {
-		t.Errorf("Expected id to be 'usrh3gJSuNh5I0l2T', got %s", c.id)
+	for name := range bad1 {
+		switch name {
+		case "Attachment":
+			test1("Attachment", "not map[string]any")
+			badAttach := []any{
+				"not a map[string]any",
+			}
+			test1("Attachment", badAttach)
+			noId := []any{
+				map[string]any{
+					"filename": "Twilight.pdf",
+					"size":     190671,
+				},
+			}
+			test1("Attachment", noId)
+			badThumbnails := []any{
+				map[string]any{
+					"filename":   "Twilight.pdf",
+					"id":         "attyxnHVzxgLVejeF",
+					"size":       190671,
+					"thumbnails": "not a map[string]any",
+				},
+			}
+			test1("Attachment", badThumbnails)
+			badThumbnail := []any{
+				map[string]any{
+					"filename": "Twilight.pdf",
+					"id":       "attyxnHVzxgLVejeF",
+					"size":     190671,
+					"thumbnails": map[string]any{
+						"full": "not a map[string]any",
+					},
+				},
+			}
+			test1("Attachment", badThumbnail)
+			thumbNoId := []any{
+				map[string]any{
+					"filename": "Twilight.pdf",
+					"id":       "attyxnHVzxgLVejeF",
+					"size":     190671,
+					"thumbnails": map[string]any{
+						"full": map[string]any{
+							"height": 1341,
+							"width":  1024,
+						},
+					},
+				},
+			}
+			test1("Attachment", thumbNoId)
+		case "Barcode":
+			test1("Barcode", "not map[string]any")
+		case "Button":
+			test1("Button", "not map[string]any")
+			noId := map[string]any{
+				"url": "https://brotsky.com",
+			}
+			test1("Button", noId)
+		case "Checkbox":
+			test1("Checkbox", "not bool")
+		case "Collaborator":
+			test1("Collaborator", "not map[string]any")
+		case "CreatedBy":
+			test1("CreatedBy", "not map[string]any")
+		case "CreatedTime":
+			test1("CreatedTime", 34)
+		case "Currency":
+			test1("Currency", "not float64")
+		case "Date":
+			test1("Date", 34)
+		case "DateTime":
+			test1("DateTime", 34)
+			test1("DateTime", "not a date")
+		case "Duration":
+			test1("Duration", "not float64")
+		case "Email":
+			test1("Email", 34)
+		case "Float":
+			test1("Float", "not float64")
+		case "Int":
+			test1("Int", "not int")
+		case "LastModifiedBy":
+			test1("LastModifiedBy", "not map[string]any")
+		case "LastModifiedTime":
+			test1("LastModifiedTime", 34)
+		case "LongText":
+			test1("LongText", 34)
+		case "MultipleCollaborator":
+			test1("MultipleCollaborator", "not []any")
+			badData := []any{
+				"not a map[string]any",
+			}
+			test1("MultipleCollaborator", badData)
+			badCollaborator := []any{
+				map[string]any{
+					"email": "dan@brotsky.com",
+					"name":  "Dan Brotsky",
+				},
+			}
+			test1("MultipleCollaborator", badCollaborator)
+		case "MultipleSelect":
+			test1("MultipleSelect", "not []any")
+			badOption := []any{
+				"not a string",
+				34,
+			}
+			test1("MultipleSelect", badOption)
+		case "Percent":
+			test1("Percent", "not float64")
+		case "Phone":
+			test1("Phone", 34)
+		case "Rating":
+			test1("Rating", "not int")
+		case "Raw":
+			continue
+		case "RichText":
+			test1("RichText", 34)
+		case "SingleLine":
+			test1("SingleLine", 34)
+		case "SingleSelect":
+			test1("SingleSelect", 34)
+		case "Url":
+			test1("Url", 34)
+		case "SingleLink":
+			test1("SingleLink", "not []any")
+			test1("SingleLink", []any{"not a valid record id", "anotherLink"})
+			test1("SingleLink", []any{34})
+		case "MultiLink":
+			test1("MultiLink", "not []any")
+			test1("MultiLink", []any{"bad"})
+			test1("MultiLink", []any{"not a valid record id", "anotherLink"})
+		default:
+			t.Errorf("Unexpected field name '%s'", name)
+		}
 	}
-	if c.name != "Dan Brotsky" {
-		t.Errorf("Expected name to be 'Dan Brotsky', got %s", c.name)
+}
+
+type BadTable2 struct {
+	Field1 string `field:"Field1"`
+}
+
+func (b *BadTable2) GetRecordId() string {
+	panic("implement me")
+}
+
+func (b *BadTable2) RetrieveRecord(string) (map[string]any, error) {
+	panic("implement me")
+}
+
+func (b *BadTable2) Marshal() (map[string]any, error) {
+	panic("implement me")
+}
+
+func (b *BadTable2) Unmarshal(fields map[string]any) error {
+	return UnmarshalRecord(b, fields, 1)
+}
+
+type BadTable3 struct {
+	Field1 *string `field:"Field1"`
+}
+
+func (b *BadTable3) GetRecordId() string {
+	panic("implement me")
+}
+
+func (b *BadTable3) RetrieveRecord(string) (map[string]any, error) {
+	panic("implement me")
+}
+
+func (b *BadTable3) Marshal() (map[string]any, error) {
+	panic("implement me")
+}
+
+func (b *BadTable3) Unmarshal(fields map[string]any) error {
+	return UnmarshalRecord(b, fields, 1)
+}
+
+func TestUnmarshalInvalidField(t *testing.T) {
+	if err := UnmarshalRecord(new(BadTable2), map[string]any{"Field1": "value"}, 1); !errors.Is(err, UnmarshalError{}) {
+		t.Errorf("Expected UnmarshalError for invalid field, got %v", err)
+	} else if !strings.Contains(err.Error(), "Field1") {
+		t.Errorf("Expected error message to contain 'Field1', got %v", err)
 	}
-	if c.permissionLevel != "" {
-		t.Errorf("Expected permissionLevel to be '', got %s", c.permissionLevel)
+	if err := UnmarshalRecord(new(BadTable3), map[string]any{"Field1": "value"}, 1); !errors.Is(err, UnmarshalError{}) {
+		t.Errorf("Expected UnmarshalError for invalid field, got %v", err)
+	} else if !strings.Contains(err.Error(), "Field1") {
+		t.Errorf("Expected error message to contain 'Field1', got %v", err)
 	}
-	if c.profilePicUrl != "" {
-		t.Errorf("Expected profilePicUrl to be '', got %s", c.profilePicUrl)
+}
+
+func TestUnmarshalInvalidType(t *testing.T) {
+	fields := table1Records[0].Fields
+	if err := UnmarshalRecord(nil, fields, 1); !errors.Is(err, UnmarshalError{}) {
+		t.Errorf("Expected UnmarshalError, got %T", err)
+	} else if !strings.Contains(err.Error(), "nil") {
+		t.Errorf("Expected error message to contain 'nil', got %v", err)
 	}
-	var bad1 map[string]any = nil
-	if _, err := unmarshalCollaboratorData(bad1); err == nil {
-		t.Error("Expected error unmarshaling nil")
+	if err := UnmarshalRecord("test", fields, 1); !errors.Is(err, UnmarshalError{}) {
+		t.Errorf("Expected UnmarshalError, got %T", err)
+	} else if !strings.Contains(err.Error(), "pointer") {
+		t.Errorf("Expected error message to contain 'pointer', got %v", err)
 	}
-	bad2 := map[string]string{"a": "a"}
-	if _, err := unmarshalCollaboratorData(bad2); err == nil {
-		t.Error("Expected error unmarshaling wrong type of map")
+	if err := UnmarshalRecord(&fields, fields, 1); !errors.Is(err, UnmarshalError{}) {
+		t.Errorf("Expected UnmarshalError, got %v", err)
+	} else if !strings.Contains(err.Error(), "struct") {
+		t.Errorf("Expected error message to contain 'struct', got %v", err)
 	}
-	bad3 := map[string]any{"email": "dan@brotsky.com"}
-	if _, err := unmarshalCollaboratorData(bad3); err == nil {
-		t.Error("Expected error unmarshaling map without id field")
+	var p *Table1
+	if err := UnmarshalRecord(p, fields, 1); !errors.Is(err, UnmarshalError{}) {
+		t.Errorf("Expected UnmarshalError, got %v", err)
+	} else if !strings.Contains(err.Error(), "valid struct") {
+		t.Errorf("Expected error message to contain 'valid struct', got %v", err)
+	}
+	if err := UnmarshalRecord(&struct{}{}, fields, 1); !errors.Is(err, UnmarshalError{}) {
+		t.Errorf("Expected UnmarshalError, got %v", err)
+	} else if !strings.Contains(err.Error(), "RecordData") {
+		t.Errorf("Expected error message to contain 'RecordData', got %v", err)
 	}
 }

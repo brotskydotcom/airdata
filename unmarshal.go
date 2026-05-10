@@ -15,22 +15,22 @@ import (
 func UnmarshalRecord(target any, fields map[string]any, depth uint) error {
 	if target == nil {
 		// only true if called with literal nil, not a typed nil pointer
-		return fmt.Errorf("cannot unmarshal to nil")
+		return UnmarshalError{Message: "cannot unmarshal to nil"}
 	}
 	// Now we have a concrete value that we can examine
 	v := reflect.ValueOf(target)
 	if v.Kind() != reflect.Ptr {
-		return fmt.Errorf("cannot unmarshal to non-pointer type")
+		return UnmarshalError{Message: "cannot unmarshal to non-pointer type"}
 	}
 	if v.IsNil() {
-		return fmt.Errorf("can only unmarshal to a valid struct pointer, not nil")
+		return UnmarshalError{Message: "can only unmarshal to a valid struct pointer, not nil"}
 	}
 	s := v.Elem()
 	if s.Kind() != reflect.Struct {
-		return fmt.Errorf("can only unmarshal to a struct pointer")
+		return UnmarshalError{Message: "can only unmarshal to a struct pointer"}
 	}
 	if !isRecordData(v.Type()) {
-		return fmt.Errorf("can only unmarshal to a struct that implements RecordData")
+		return UnmarshalError{Message: "can only unmarshal to a struct that implements RecordData"}
 	}
 	// set to a zero value before unmarshaling fields
 	s.Set(reflect.New(s.Type()).Elem())
@@ -122,7 +122,7 @@ func unmarshalStructValue(s reflect.Value, fields map[string]any, depth uint) er
 			v, err = unmarshalUrlField(data)
 		}
 		if err != nil {
-			return fmt.Errorf("error unmarshaling field %s: %w", ft.Name, err)
+			return UnmarshalError{Field: ft.Name, Err: err}
 		}
 		if v.IsValid() {
 			if fv.Kind() == reflect.Ptr {
@@ -136,17 +136,17 @@ func unmarshalStructValue(s reflect.Value, fields map[string]any, depth uint) er
 		// not a concrete field type, so either it's a link type or it's invalid
 		fvt = fv.Type()
 		if fv.Kind() != reflect.Ptr && fv.Kind() != reflect.Slice {
-			return fmt.Errorf("error unmarshaling field %s: %v is not a valid field type", ft.Name, fvt)
+			return UnmarshalError{Field: ft.Name, Err: fmt.Errorf("%v is not a valid field type", fvt)}
 		}
 		if fv.Kind() == reflect.Slice {
 			fvt = fv.Type().Elem()
 		}
 		if !isRecordData(fvt) {
-			return fmt.Errorf("error unmarshaling field %s: %v is not RecordData", ft.Name, fvt)
+			return UnmarshalError{Field: ft.Name, Err: fmt.Errorf("%v doesn't implement RecordData", fvt)}
 		}
 		rvs, err := unmarshalLinks(data, fvt, depth, fv.Kind() == reflect.Pointer)
 		if err != nil {
-			return fmt.Errorf("error unmarshaling field %s: %w", ft.Name, err)
+			return UnmarshalError{Field: ft.Name, Err: err}
 		}
 		if len(rvs) > 0 {
 			if fv.Kind() == reflect.Ptr {
@@ -165,31 +165,31 @@ func unmarshalLinks(data any, lt reflect.Type, depth uint, oneMax bool) ([]refle
 	}
 	linkData, ok := data.([]any)
 	if !ok {
-		return nil, fmt.Errorf("invalid link data: %v", data)
+		return nil, fmt.Errorf("invalid link data: %+#v", data)
 	}
 	if len(linkData) == 0 {
 		return nil, nil
 	}
 	if oneMax && len(linkData) > 1 {
-		return nil, fmt.Errorf("too many links")
+		return nil, fmt.Errorf("too many links: %+#v", linkData)
 	}
 	result := make([]reflect.Value, 0, len(linkData))
 	for i, linkData := range linkData {
 		id, ok := linkData.(string)
 		if !ok {
-			return nil, fmt.Errorf("invalid data for link %d: %v", i+1, linkData)
+			return nil, fmt.Errorf("invalid data for link %d: %+#v", i+1, linkData)
 		}
 		v := reflect.New(lt.Elem())
 		retrieve := v.MethodByName("RetrieveRecord")
 		values := retrieve.Call([]reflect.Value{reflect.ValueOf(id)})
 		if !values[1].IsNil() {
 			err := values[1].Interface().(error)
-			return nil, fmt.Errorf("error retrieving record for link %d: %w", i+1, err)
+			return nil, fmt.Errorf("error retrieving record for link %q: %w", id, err)
 		}
 		fields := values[0].Interface().(map[string]any)
 		err := unmarshalStructValue(v.Elem(), fields, depth-1)
 		if err != nil {
-			return nil, fmt.Errorf("error unmarshaling link %d: %w", i+1, err)
+			return nil, fmt.Errorf("error unmarshaling link %q: %w", id, err)
 		}
 		result = append(result, v)
 	}
@@ -199,7 +199,7 @@ func unmarshalLinks(data any, lt reflect.Type, depth uint, oneMax bool) ([]refle
 func unmarshalAttachmentField(data any) (reflect.Value, error) {
 	attachmentsData, ok := data.([]any)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid attachment data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid attachment data: %+#v", data)
 	}
 	attachments := make([]AttachmentData, 0, len(attachmentsData))
 	for _, attachmentData := range attachmentsData {
@@ -215,7 +215,7 @@ func unmarshalAttachmentField(data any) (reflect.Value, error) {
 func unmarshalBarcodeField(data any) (reflect.Value, error) {
 	barcodeData, ok := data.(map[string]any)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid barcode data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid barcode data: %+#v", data)
 	}
 	barcode := BarcodeField{
 		kind: entryOrZero[string]("type", barcodeData),
@@ -227,7 +227,7 @@ func unmarshalBarcodeField(data any) (reflect.Value, error) {
 func unmarshalButtonField(data any) (reflect.Value, error) {
 	buttonData, ok := data.(map[string]any)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid button data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid button data: %+#v", data)
 	}
 	label := entryOrZero[string]("label", buttonData)
 	if label == "" {
@@ -241,7 +241,10 @@ func unmarshalButtonField(data any) (reflect.Value, error) {
 }
 
 func unmarshalCheckboxField(data any) (reflect.Value, error) {
-	val, _ := data.(bool)
+	val, ok := data.(bool)
+	if !ok {
+		return reflect.Value{}, fmt.Errorf("invalid checkbox data: %+#v", data)
+	}
 	return reflect.ValueOf(CheckboxField(val)), nil
 }
 
@@ -270,13 +273,9 @@ func unmarshalCreatedTimeField(data any) (reflect.Value, error) {
 }
 
 func unmarshalCurrencyField(data any) (reflect.Value, error) {
-	val, ok := data.(float64)
-	if !ok {
-		iv, ok := data.(int)
-		if !ok {
-			return reflect.Value{}, fmt.Errorf("invalid currency data: %v", data)
-		}
-		val = float64(iv)
+	val, err := intOrFloat[float64](data)
+	if err != nil {
+		return reflect.Value{}, err
 	}
 	return reflect.ValueOf(CurrencyField(val)), nil
 }
@@ -308,7 +307,7 @@ func unmarshalDurationField(data any) (reflect.Value, error) {
 func unmarshalEmailField(data any) (reflect.Value, error) {
 	val, ok := data.(string)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid email data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid email data: %+#v", data)
 	}
 	return reflect.ValueOf(EmailField(val)), nil
 }
@@ -332,7 +331,7 @@ func unmarshalLastModifiedTimeField(data any) (reflect.Value, error) {
 func unmarshalLongTextField(data any) (reflect.Value, error) {
 	val, ok := data.(string)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid long text data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid long text data: %+#v", data)
 	}
 	return reflect.ValueOf(LongTextField(val)), nil
 }
@@ -348,13 +347,13 @@ func unmarshalMultipleCollaboratorField(data any) (reflect.Value, error) {
 func unmarshalMultipleSelectField(data any) (reflect.Value, error) {
 	vals, ok := data.([]any)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid multiple select data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid multiple select data: %+#v", data)
 	}
 	options := make([]string, 0, len(vals))
 	for _, val := range vals {
 		option, ok := val.(string)
 		if !ok {
-			return reflect.Value{}, fmt.Errorf("invalid select option data: %v", val)
+			return reflect.Value{}, fmt.Errorf("invalid select option data: %+#v", val)
 		}
 		options = append(options, option)
 	}
@@ -362,33 +361,25 @@ func unmarshalMultipleSelectField(data any) (reflect.Value, error) {
 }
 
 func unmarshalIntField(data any) (reflect.Value, error) {
-	val, ok := data.(int)
-	if !ok {
-		fv, ok := data.(float64)
-		if !ok {
-			return reflect.Value{}, fmt.Errorf("invalid number data: %v", data)
-		}
-		val = int(fv)
+	val, err := intOrFloat[int64](data)
+	if err != nil {
+		return reflect.Value{}, err
 	}
 	return reflect.ValueOf(IntField(val)), nil
 }
 
 func unmarshalFloatField(data any) (reflect.Value, error) {
-	val, ok := data.(float64)
-	if !ok {
-		iv, ok := data.(int)
-		if !ok {
-			return reflect.Value{}, fmt.Errorf("invalid number data: %v", data)
-		}
-		val = float64(iv)
+	val, err := intOrFloat[float64](data)
+	if err != nil {
+		return reflect.Value{}, err
 	}
 	return reflect.ValueOf(FloatField(val)), nil
 }
 
 func unmarshalPercentField(data any) (reflect.Value, error) {
-	val, ok := data.(float64)
-	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid number data: %v", data)
+	val, err := intOrFloat[float64](data)
+	if err != nil {
+		return reflect.Value{}, err
 	}
 	return reflect.ValueOf(PercentField(val)), nil
 }
@@ -396,7 +387,7 @@ func unmarshalPercentField(data any) (reflect.Value, error) {
 func unmarshalPhoneField(data any) (reflect.Value, error) {
 	val, ok := data.(string)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid string data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid phone data: %+#v", data)
 	}
 	return reflect.ValueOf(PhoneField(val)), nil
 }
@@ -404,7 +395,7 @@ func unmarshalPhoneField(data any) (reflect.Value, error) {
 func unmarshalRatingField(data any) (reflect.Value, error) {
 	val, ok := data.(int)
 	if !ok || val < 1 || val > 10 {
-		return reflect.Value{}, fmt.Errorf("invalid rating data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid rating data: %+#v", data)
 	}
 	return reflect.ValueOf(RatingField(val)), nil
 }
@@ -416,7 +407,7 @@ func unmarshalRawField(data any) (reflect.Value, error) {
 func unmarshalRichTextField(data any) (reflect.Value, error) {
 	val, ok := data.(string)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid rich text data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid rich text data: %+#v", data)
 	}
 	return reflect.ValueOf(RichTextField(val)), nil
 }
@@ -424,7 +415,7 @@ func unmarshalRichTextField(data any) (reflect.Value, error) {
 func unmarshalSingleLineTextField(data any) (reflect.Value, error) {
 	val, ok := data.(string)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid single line text data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid single line text data: %+#v", data)
 	}
 	return reflect.ValueOf(SingleLineTextField(val)), nil
 }
@@ -432,7 +423,7 @@ func unmarshalSingleLineTextField(data any) (reflect.Value, error) {
 func unmarshalSingleSelectField(data any) (reflect.Value, error) {
 	val, ok := data.(string)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid single select data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid single select data: %+#v", data)
 	}
 	return reflect.ValueOf(SingleSelectField(val)), nil
 }
@@ -440,7 +431,7 @@ func unmarshalSingleSelectField(data any) (reflect.Value, error) {
 func unmarshalUrlField(data any) (reflect.Value, error) {
 	val, ok := data.(string)
 	if !ok {
-		return reflect.Value{}, fmt.Errorf("invalid url data: %v", data)
+		return reflect.Value{}, fmt.Errorf("invalid url data: %+#v", data)
 	}
 	return reflect.ValueOf(UrlField(val)), nil
 }
@@ -448,11 +439,11 @@ func unmarshalUrlField(data any) (reflect.Value, error) {
 func unmarshalAttachmentData(data any) (*AttachmentData, error) {
 	attachmentData, ok := data.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("attachment data in incorrect format")
+		return nil, fmt.Errorf("invalid attachment data: %+#v", data)
 	}
 	id := entryOrZero[string]("id", attachmentData)
 	if id == "" {
-		return nil, fmt.Errorf("attachment data missing required field 'id'")
+		return nil, fmt.Errorf("attachment data missing required field 'id': %+#v", attachmentData)
 	}
 	attachment := AttachmentData{
 		id:       id,
@@ -476,7 +467,7 @@ func unmarshalAttachmentData(data any) (*AttachmentData, error) {
 func unmarshalThumbnails(data any) (map[string]ThumbnailData, error) {
 	thumbnailsData, ok := data.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("thumbnails data in incorrect format")
+		return nil, fmt.Errorf("invalid thumbnails data: %+#v", data)
 	}
 	thumbnails := make(map[string]ThumbnailData, len(thumbnailsData))
 	for thumbnailName, thumbnailData := range thumbnailsData {
@@ -492,11 +483,11 @@ func unmarshalThumbnails(data any) (map[string]ThumbnailData, error) {
 func unmarshalThumbnail(data any) (*ThumbnailData, error) {
 	thumbnailData, ok := data.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("thumbnail data in incorrect format")
+		return nil, fmt.Errorf("invalid thumbnail data: %+#v", data)
 	}
 	url := entryOrZero[string]("url", thumbnailData)
 	if url == "" {
-		return nil, fmt.Errorf("thumbnail data missing required field 'url'")
+		return nil, fmt.Errorf("thumbnail data missing required field 'url': %+#v", thumbnailData)
 	}
 	thumbnail := ThumbnailData{
 		url:    url,
@@ -509,7 +500,7 @@ func unmarshalThumbnail(data any) (*ThumbnailData, error) {
 func unmarshalMultipleCollaboratorData(data any) ([]CollaboratorData, error) {
 	collaboratorsData, ok := data.([]any)
 	if !ok {
-		return nil, fmt.Errorf("multiple collaborator data in incorrect format")
+		return nil, fmt.Errorf("invalid multiple collaborator data: %+#v", data)
 	}
 	collaborators := make([]CollaboratorData, 0, len(collaboratorsData))
 	for _, collaboratorData := range collaboratorsData {
@@ -525,11 +516,11 @@ func unmarshalMultipleCollaboratorData(data any) ([]CollaboratorData, error) {
 func unmarshalCollaboratorData(data any) (*CollaboratorData, error) {
 	collabData, ok := data.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("collaborator data in incorrect format")
+		return nil, fmt.Errorf("invalid collaborator data: %+#v", data)
 	}
 	id := entryOrZero[string]("id", collabData)
 	if id == "" {
-		return nil, fmt.Errorf("collaborator data doesn't have required 'id' value")
+		return nil, fmt.Errorf("collaborator data doesn't have required 'id' value: %+#v", collabData)
 	}
 	c := CollaboratorData{
 		id:              id,
@@ -544,27 +535,23 @@ func unmarshalCollaboratorData(data any) (*CollaboratorData, error) {
 func unmarshalDateTimeData(data any) (*time.Time, error) {
 	s, ok := data.(string)
 	if !ok {
-		return nil, fmt.Errorf("datetime data in incorrect format")
+		return nil, fmt.Errorf("invalid datetime data: %+#v", data)
 	}
 	// first try full date and time, then just date
 	dt, err := time.ParseInLocation("2006-01-02T15:04:05.000Z", s, time.UTC)
 	if err != nil {
 		dt, err = time.ParseInLocation("2006-01-02", s, time.UTC)
 		if err != nil {
-			return nil, fmt.Errorf("datetime data in incorrect format: %w", err)
+			return nil, fmt.Errorf("invalid datetime format: %w", err)
 		}
 	}
 	return &dt, nil
 }
 
 func unmarshalDurationData(data any) (*time.Duration, error) {
-	seconds, ok := data.(float64)
-	if !ok {
-		secs, ok := data.(int)
-		if !ok {
-			return nil, fmt.Errorf("duration data in invalid format")
-		}
-		seconds = float64(secs)
+	seconds, err := intOrFloat[float64](data)
+	if err != nil {
+		return nil, err
 	}
 	return new(time.Duration(seconds * float64(time.Second))), nil
 }
@@ -576,4 +563,15 @@ func entryOrZero[T any](key string, m map[string]any) T {
 		}
 	}
 	return *new(T)
+}
+
+func intOrFloat[T int64 | float64](val any) (T, error) {
+	switch v := val.(type) {
+	case int:
+		return T(v), nil
+	case float64:
+		return T(v), nil
+	default:
+		return *new(T), fmt.Errorf("not a number value: %+#v", val)
+	}
 }
